@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <title>SoilFlow AI Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #4ade80; /* أخضر زاهي ومريح */
+            --bg: #1c1917; 
+            --card-bg: rgba(68, 64, 60, 0.6); 
+            --text: #f5f5f4;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: radial-gradient(circle at top right, #44403c, #1c1917);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+
+        h1 {
+            /* تعديل لون العنوان إلى أخضر فاتح ومتوهج بدلاً من الغامق المزعج */
+            color: #4ade80; 
+            font-size: 2.5rem;
+            text-shadow: 0 0 20px rgba(74, 222, 128, 0.2);
+            margin-bottom: 30px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 25px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover { transform: translateY(-5px); }
+
+        .score-value {
+            font-size: 3.5rem;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .sensor-val {
+            font-size: 1.5rem;
+            font-weight: bold;
+            /* تم تغيير اللون الأصفر إلى الأخضر هنا */
+            color: #4ade80; 
+        }
+
+        .alert {
+            background: rgba(127, 29, 29, 0.4);
+            color: #fecaca;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #ef4444;
+            border-radius: 8px;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        .pump-status {
+            display: inline-block;
+            padding: 10px 20px;
+            border-radius: 50px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        /* تم تغيير البرتقالي في المضخة إلى لون أخضر غامق عند العمل ليتماشى مع الثيم */
+        .pump-on { background: #22c55e; color: white; box-shadow: 0 0 15px rgba(34, 197, 94, 0.4); }
+        .pump-off { background: #57534e; color: #d6d3d1; }
+
+        canvas {
+            max-width: 1200px;
+            margin: 30px auto;
+            background: rgba(41, 37, 36, 0.8);
+            border-radius: 20px;
+            padding: 20px;
+        }
+
+        .status-text { font-size: 1.8rem; font-weight: bold; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+<h1>🌱 SoilFlow AI Analysis</h1>
+
+<div class="grid">
+    <div class="card">
+        <h3> Soil Health percentage</h3>
+        <div id="score" class="score-value">--%</div>
+        <div id="status" class="status-text">Analyzing...</div>
+    </div>
+
+    <div class="card">
+        <h3>Live Sensor Data</h3>
+        <p>Moisture: <span id="moisture" class="sensor-val">--</span></p>
+        <p>Salinity (TDS): <span id="tds" class="sensor-val">--</span></p>
+        <p>Temperature: <span id="temp" class="sensor-val">--</span></p>
+    </div>
+
+    <div class="card">
+        <h3>AI Control Center</h3>
+        <div id="pump" class="pump-status pump-off">PUMP: --</div>
+        <p style="margin-top:15px;"><b>Current Action:</b> <br><span id="action">--</span></p>
+        <div id="alerts"></div>
+    </div>
+</div>
+
+<canvas id="myChart"></canvas>
+
+<script>
+const ctx = document.getElementById('myChart').getContext('2d');
+const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: [],
+        datasets: [
+            {
+                label: 'Moisture %',
+                data: [],
+                borderColor: '#4ade80', // تعديل لون الخط في الرسم البياني للأخضر
+                backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                fill: true,
+                tension: 0.4
+            },
+            {
+                label: 'TDS (scaled)',
+                data: [],
+                borderColor: '#22c55e', // أخضر أغمق قليلاً للتمييز
+                tension: 0.4
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: 'white' } } },
+        scales: {
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: 'white' } },
+            x: { grid: { display: false }, ticks: { color: 'white' } }
+        }
+    }
+});
+
+async function updateDashboard() {
+    try {
+        const response = await fetch("/data");
+        const d = await response.json();
+
+        const scoreElem = document.getElementById("score");
+        const statusElem = document.getElementById("status");
+        scoreElem.innerText = d.soil.score + "%";
+        statusElem.innerText = d.soil.status;
+
+        if(d.soil.status === "Healthy") {
+            scoreElem.style.color = "#4ade80"; 
+            statusElem.style.color = "#4ade80";
+        } else if (d.soil.status === "Warning") {
+            scoreElem.style.color = "#fbbf24"; // تركت التحذير أصفر لأنه منطقي عالمياً
+            statusElem.style.color = "#fbbf24";
+        } else {
+            scoreElem.style.color = "#ef4444"; 
+            statusElem.style.color = "#ef4444";
+        }
+
+        document.getElementById("moisture").innerText = d.sensors.moisture.toFixed(1) + " %";
+        document.getElementById("tds").innerText = d.sensors.tds.toFixed(0) + " ppm";
+        document.getElementById("temp").innerText = d.sensors.temperature + " °C";
+
+        const pumpElem = document.getElementById("pump");
+        pumpElem.innerText = "PUMP: " + d.analysis.pump;
+        pumpElem.className = d.analysis.pump === "ON" ? "pump-status pump-on" : "pump-status pump-off";
+        
+        document.getElementById("action").innerText = d.analysis.actions[0];
+
+        const alertsDiv = document.getElementById("alerts");
+        alertsDiv.innerHTML = d.analysis.alerts.map(a => `<div class="alert">${a}</div>`).join('');
+
+        const now = new Date().toLocaleTimeString();
+        chart.data.labels.push(now);
+        chart.data.datasets[0].data.push(d.sensors.moisture);
+        chart.data.datasets[1].data.push(d.sensors.tds / 10); 
+
+        if (chart.data.labels.length > 10) {
+            chart.data.labels.shift();
+            chart.data.datasets.forEach(ds => ds.data.shift());
+        }
+        chart.update();
+
+    } catch (err) {
+        console.log("Connecting to AI Server...");
+    }
+}
+
+setInterval(updateDashboard, 3000);
+updateDashboard();
+</script>
+</body>
+</html>
